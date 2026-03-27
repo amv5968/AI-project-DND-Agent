@@ -1,0 +1,21 @@
+Dungeons and Dragons quick lore notes:
+
+Tavern social encounter guidance:
+- NPCs have motives, fears, and hidden goals.
+- Reward players for roleplay and skill checks.
+- Offer consequences for rude, deceptive, or generous behavior.
+
+Dungeon exploration guidance:
+- Describe rooms with sensory details.
+- Include interactable objects, traps, and clues.
+- Let players choose routes and pace.
+
+Combat resolution guidance:
+- Ask for initiative at combat start.
+- Resolve attack checks and damage transparently.
+- Track temporary effects such as poison, fear, or stun.
+
+Quest tracking guidance:
+- Update objective status after major actions.
+- Keep references to names, locations, and unresolved threads.
+- Reuse previous encounters to strengthen continuity.
