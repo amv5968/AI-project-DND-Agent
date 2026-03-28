@@ -1,0 +1,5 @@
+chromadb>=1.0.20
+langchain-text-splitters>=0.3.11
+ollama>=0.6.1
+pydantic>=2.11.7
+streamlit>=1.49.1
