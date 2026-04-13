@@ -1,8 +1,12 @@
 import os
 import sys
 import tempfile
+from io import BytesIO
+from urllib.parse import quote_plus
+from urllib.request import Request, urlopen
 
 import streamlit as st
+from PIL import Image, ImageDraw
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -13,7 +17,6 @@ from course_project.engine import DungeonMasterEngine
 
 
 def synthesize_speech(text: str, rate: int = 180) -> bytes | None:
-    """Generate WAV audio for DM narration using local text-to-speech."""
     try:
         import pyttsx3
     except Exception:
@@ -37,6 +40,46 @@ def synthesize_speech(text: str, rate: int = 180) -> bytes | None:
             os.remove(audio_path)
 
 
+def build_scene_image_url(scene_text: str, style: str, seed: int, width: int, height: int) -> str:
+    prompt = f"{style} fantasy illustration, tabletop RPG scene, cinematic lighting: {scene_text[:500]}"
+    return (
+        f"https://image.pollinations.ai/prompt/{quote_plus(prompt)}"
+        f"?seed={seed}&width={width}&height={height}&nologo=true"
+    )
+
+
+def generate_fallback_image(scene_text: str, width: int, height: int) -> bytes:
+    image = Image.new("RGB", (width, height), color=(28, 35, 54))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((16, 16, width - 16, height - 16), outline=(120, 150, 220), width=3)
+
+    title = "Scene Image (Fallback)"
+    description = scene_text[:180] + ("..." if len(scene_text) > 180 else "")
+    draw.text((28, 28), title, fill=(236, 240, 255))
+    draw.text((28, 68), description, fill=(210, 218, 240))
+
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def generate_scene_image(scene_text: str, style: str, seed: int, width: int, height: int) -> tuple[bytes, str | None]:
+    image_url = build_scene_image_url(
+        scene_text=scene_text,
+        style=style,
+        seed=seed,
+        width=width,
+        height=height,
+    )
+
+    request = Request(image_url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urlopen(request, timeout=25) as response:
+            return response.read(), None
+    except Exception as e:
+        return generate_fallback_image(scene_text, width, height), f"Remote image service unavailable ({e}). Showing local fallback image."
+
+
 st.set_page_config(page_title="AI Dungeon Master", page_icon="d20", layout="wide")
 st.title("AI Dungeon Master Project")
 st.caption("Templates, tools, planning, RAG, and memory")
@@ -49,6 +92,9 @@ if "engine" not in st.session_state:
 
 if "chat" not in st.session_state:
     st.session_state.chat = []
+
+if "image_seed" not in st.session_state:
+    st.session_state.image_seed = 1
 
 with st.sidebar:
     st.subheader("Model Controls")
@@ -69,6 +115,18 @@ with st.sidebar:
     st.subheader("Innovation Add-on")
     enable_tts = st.checkbox("Enable DM text-to-speech", value=False)
     tts_rate = st.slider("Speech Rate", min_value=120, max_value=240, value=180, step=10, disabled=not enable_tts)
+
+    enable_scene_images = st.checkbox("Enable scene image generation", value=False)
+    image_style = st.selectbox(
+        "Image Style",
+        ["epic fantasy art", "watercolor fantasy", "pixel art", "dark gothic painting", "storybook illustration"],
+        index=0,
+        disabled=not enable_scene_images,
+    )
+    image_width = st.slider("Image Width", min_value=512, max_value=1024, value=768, step=128, disabled=not enable_scene_images)
+    image_height = st.slider("Image Height", min_value=512, max_value=1024, value=768, step=128, disabled=not enable_scene_images)
+    if st.button("Regenerate Next Image", disabled=not enable_scene_images):
+        st.session_state.image_seed += 1
 
     st.write(f"Indexed lore chunks: {st.session_state.indexed_chunks}")
 
@@ -104,6 +162,18 @@ if user_message:
                 st.audio(audio_bytes, format="audio/wav")
             else:
                 st.info("Text-to-speech unavailable. Install pyttsx3 in your environment.")
+
+        if enable_scene_images:
+            image_bytes, image_notice = generate_scene_image(
+                scene_text=dm_message,
+                style=image_style,
+                seed=st.session_state.image_seed,
+                width=image_width,
+                height=image_height,
+            )
+            st.image(image_bytes, caption="Generated scene image", width="stretch")
+            if image_notice:
+                st.warning(image_notice)
 
     with st.expander("Planning + Retrieval Details"):
         st.write("Turn Plan:")
