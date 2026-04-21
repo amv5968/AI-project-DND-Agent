@@ -96,6 +96,9 @@ if "chat" not in st.session_state:
 if "image_seed" not in st.session_state:
     st.session_state.image_seed = 1
 
+if "rl_temp_history" not in st.session_state:
+    st.session_state.rl_temp_history = []
+
 with st.sidebar:
     st.subheader("Model Controls")
     scenario = st.selectbox(
@@ -128,6 +131,29 @@ with st.sidebar:
     if st.button("Regenerate Next Image", disabled=not enable_scene_images):
         st.session_state.image_seed += 1
 
+    st.divider()
+    st.subheader("RL Agent")
+    use_rl_temperature = st.checkbox("Let RL agent control temperature", value=False)
+
+    if st.session_state.rl_temp_history:
+        latest_rl = st.session_state.rl_temp_history[-1]
+        delta = round(latest_rl - temperature, 2)
+        st.metric(
+            label="RL Suggested Temperature",
+            value=f"{latest_rl:.2f}",
+            delta=f"{delta:+.2f} vs slider",
+            delta_color="normal",
+        )
+        if len(st.session_state.rl_temp_history) > 1:
+            st.line_chart(
+                st.session_state.rl_temp_history,
+                height=120,
+                use_container_width=True,
+            )
+    else:
+        st.caption("RL temperature will appear after the first turn.")
+
+    st.divider()
     st.write(f"Indexed lore chunks: {st.session_state.indexed_chunks}")
 
     if st.button("Re-index Lore"):
@@ -148,9 +174,11 @@ if user_message:
         session_id=st.session_state.session_id,
         user_message=user_message,
         scenario=scenario,
-        temperature=temperature,
+        temperature=None if use_rl_temperature else temperature,
         max_tokens=max_tokens,
     )
+
+    st.session_state.rl_temp_history.append(result["rl_temperature"])
 
     dm_message = result["response"]
     st.session_state.chat.append(("assistant", dm_message))
@@ -176,6 +204,13 @@ if user_message:
                 st.warning(image_notice)
 
     with st.expander("Planning + Retrieval Details"):
+        rl_temp = result["rl_temperature"]
+        effective = rl_temp if use_rl_temperature else temperature
+        st.write("RL Agent Temperature:")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("RL Suggested", f"{rl_temp:.2f}")
+        col2.metric("Slider", f"{temperature:.2f}")
+        col3.metric("Used This Turn", f"{effective:.2f}", delta=f"{effective - temperature:+.2f}" if use_rl_temperature else "manual")
         st.write("Turn Plan:")
         st.json(result["plan"])
         st.write("Retrieved Context Chunks:")

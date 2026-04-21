@@ -3,7 +3,7 @@ Main AI Dungeon Master engine.
 """
 
 import uuid
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import ollama
 
@@ -12,6 +12,7 @@ from course_project.database import GameStateDB
 from course_project.planner import build_turn_plan
 from course_project.prompts import load_system_prompt
 from course_project.rag import LoreRetriever
+from course_project.rl_agent import DMRLAgent
 from course_project.tools import coin_flip, parse_roll_request, roll_d20
 
 
@@ -25,11 +26,18 @@ class DungeonMasterEngine:
             collection_name=config.RAG_COLLECTION,
             embedding_model=config.EMBEDDING_MODEL,
         )
+        self.rl_agent = DMRLAgent()
+        self._session_turns: Dict[str, List[str]] = {}
 
     def start_session(self, player_name: str) -> str:
         session_id = str(uuid.uuid4())
         self.db.log_turn(session_id, "system", f"Session started for {player_name}", "session")
+        self._session_turns[session_id] = []
         return session_id
+
+    def end_session(self, session_id: str) -> None:
+        self.rl_agent.end_session()
+        self._session_turns.pop(session_id, None)
 
     def index_default_lore(self) -> int:
         return self.retriever.rebuild_from_directory(config.DEFAULT_DATA_DIR)
@@ -73,15 +81,26 @@ class DungeonMasterEngine:
         session_id: str,
         user_message: str,
         scenario: str = "general_adventure",
-        temperature: float = config.DEFAULT_TEMPERATURE,
+        temperature: Optional[float] = None,
         max_tokens: int = config.DEFAULT_MAX_TOKENS,
     ) -> Dict[str, object]:
         """
         Process one player turn and produce a DM response.
 
         Returns:
-            Dict with response text, plan, context, and tool notes.
+            Dict with response text, plan, context, tool notes, and rl_temperature.
         """
+        history = self._session_turns.setdefault(session_id, [])
+        if history:
+            prev_len = len(history[-1])
+            reward = 1.0 if len(user_message) >= prev_len else 0.0
+            self.rl_agent.record_reward(reward)
+
+        turn_count = len(history)
+        rl_temperature = self.rl_agent.choose_temperature(scenario, turn_count)
+        effective_temperature = temperature if temperature is not None else rl_temperature
+        history.append(user_message)
+
         plan = build_turn_plan(user_message=user_message, scenario=scenario)
         context_chunks = self.retriever.query(user_message, n_results=config.DEFAULT_NUM_CONTEXT_CHUNKS)
         tool_notes = self._run_tools(user_message)
@@ -104,7 +123,7 @@ class DungeonMasterEngine:
                 model=config.MODEL_NAME,
                 messages=messages,
                 options={
-                    "temperature": temperature,
+                    "temperature": effective_temperature,
                     "top_p": config.DEFAULT_TOP_P,
                     "num_predict": max_tokens,
                 },
@@ -124,4 +143,5 @@ class DungeonMasterEngine:
             "plan": plan.model_dump(),
             "context": context_chunks,
             "tool_notes": tool_notes,
+            "rl_temperature": rl_temperature,
         }

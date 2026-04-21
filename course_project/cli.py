@@ -34,6 +34,9 @@ def main() -> None:
             scenario="console_campaign",
         )
         print("DM:", result["response"])
+        print(f"[RL temperature used: {result['rl_temperature']:.1f}]")
+
+    engine.end_session(session_id)
 
 
 if __name__ == "__main__":
